@@ -10,7 +10,7 @@ At the end of the day, all a container is an isolated service with its dependenc
 ## How?
 As mentioned before, a container is nothing more than an isolated service running on the linux Kernel. How it does htis is by using kernel level modules known as `namespaces`,`cgroups` and something called `capabilities`.
 
-For a deeper explanation of containers,namespaces,cgroups etc. [click here](todo-add-link)
+For a deeper explanation of containers,namespaces,cgroups etc. click here todo-add-link
 ## Prereqs
 You will need some linux folders and structures,you could create this all totally from scratch i guess but its easier this way since youre learning about isolation not linux.
 
