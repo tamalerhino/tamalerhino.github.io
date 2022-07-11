@@ -4,6 +4,11 @@ date: 2021-10-23 12:00:00 -500
 categories: [Containerization,Hacking]
 tags: [containerization,docker,hacking,dlp,data exfiltration]
 img_path: /assets/img/posts/
+image:
+  path: pexels-anete-lusina-5240543.jpg
+  width: 1000
+  height: 800
+  alt: hacking
 ---
 Often as security engineers we are worried about what vulnerabilites can be downloaded from container registries, howver i believe the same could be used to exfiltrate data.
 
@@ -29,7 +34,7 @@ Docker has built-in commands such as "docker manifest"  and "docker manifest ins
 <details>
   <summary>Manifest V2 Example</summary>
 
-  ```json
+  {% highlight json %}
   {
     "schemaVersion": 2,
     "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
@@ -56,14 +61,14 @@ Docker has built-in commands such as "docker manifest"  and "docker manifest ins
         }
     ]
 }
-  ```
+{% endhighlight %}
   
 </details>
 
 <details>
   <summary>Manifest List Example</summary>
 
-  ```json
+  {% highlight json %}
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -91,8 +96,8 @@ Docker has built-in commands such as "docker manifest"  and "docker manifest ins
     }
   ]
 }
-  ```
-  
+{% endhighlight %}
+
 </details>
 
 # How to abuse a docker repository to exfiltrate data.
@@ -115,7 +120,7 @@ This is what the repo looks like with just one image for simplicity, the more im
 <details>
   <summary>Docker Registry Directory Structure for Ubuntu</summary>
 
-  ```bash
+{% highlight bash %}
 /var/lib/registry/docker/registry/v2 # ls -R | grep ":$" | sed -e 's/:$//' -e 's/[^-][^\/]*\//--/g' -e 's/^/   /' -e 's/-/|/' #yes this looks ugly but i didnt have `tree` installed
    .
    |-blobs
@@ -152,9 +157,10 @@ This is what the repo looks like with just one image for simplicity, the more im
    |-------------sha256
    |---------------a3785f78ab8547ae2710c89e627783cfa7ee7824d3468cae6835c9f4eae23ff7
    |-----_uploads
-  ```
+{% endhighlight %}
   
 </details>
+
 
 Here we can see the blobs directory, currently hosting Docker Image layers, however, keep in mind it could be absolutely any type of file. Then we have the Repositories folder which contains metadata and link references to the blobs.
 
@@ -192,7 +198,7 @@ After running it we can see that there is a new layer in blobs!
 <details>
   <summary>Docker Registry Directory Structure for Ubuntu showing the new layer</summary>
   
-  ```bash
+  {% highlight bash %}
   /var/lib/registry/docker/registry/v2 # ls -R | grep ":$" | sed -e 's/:$//' -e 's/[^-][^\/]*\//--/g' -e 's/^/   /' -e 's/-/|/'
    .
    |-blobs
@@ -242,7 +248,7 @@ After running it we can see that there is a new layer in blobs!
    |-------e7adae40-331d-4532-8c35-516a8a5f698e
    |---------hashstates
    |-----------sha256
-   ```
+   {% endhighlight %}
 </details>
 
 Catting out that file will show that we have successfully exfiltrated using the docker registry API! And as you can see we did not overwrite any layer or repo, just adding to where the blob gets stored.
@@ -275,7 +281,7 @@ bin/registry garbage-collect [--dry-run] /path/to/config.yml
 <details>
   <summary>To find your rootdirectory for your yaml file run this</summary>
 
-  ```bash
+  {% highlight bash %}
 # cat /etc/docker/registry/config.yml
 version: 0.1
 log:
@@ -295,19 +301,19 @@ health:
     enabled: true
     interval: 10s
     threshold: 3
-  ```
+  {% endhighlight %}
   
 </details>
 
 <details>
   <summary>deletebadstuff.yml</summary>
 
-  ```yml
+  {% highlight yml %}
 version: 0.1
 storage:
   filesystem:
     rootdirectory: /var/lib/registry
-  ```
+  {% endhighlight %}
   
 </details>
 

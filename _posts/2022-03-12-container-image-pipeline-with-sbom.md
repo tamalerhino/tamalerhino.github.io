@@ -5,6 +5,11 @@ categories: [Containerization,DevSecOps]
 tags: [containerization,docker,devsecops,SBOM]
 img_path: /assets/img/posts/
 mermaid: true
+image:
+  path: pexels-magda-ehlers-2569842.jpg
+  width: 1000
+  height: 800
+  alt: Pipelines
 ---
 
 This is to go over a container image pipeline that will scan for vulnerabilities and generate a Software Bill of Materials at the end.
@@ -19,7 +24,7 @@ graph TD
     F --> G(SBOM gets genrated and uploaded to artifact mangament system)
     E -->|fails| H[pipeline fails and stops]
 ```
-#Trivy
+# Trivy
 ## What is Trivy?
 Trivy (tri pronounced like trigger, vy pronounced like envy) is a simple and comprehensive scanner for vulnerabilities in container images, file systems, and Git repositories, as well as for configuration issues. Trivy detects vulnerabilities of OS packages (Alpine, RHEL, CentOS, etc.) and language-specific packages (Bundler, Composer, npm, yarn, etc.). In addition, Trivy scans Infrastructure as Code (IaC) files such as Terraform, Dockerfile and Kubernetes, to detect potential configuration issues that expose your deployments to the risk of attack. Trivy also scans hardcoded secrets like passwords, API keys and tokens. Trivy is easy to use. Just install the binary and you're ready to scan.
 
@@ -75,7 +80,7 @@ Trivy can create a Software Bill of Materials!
 >$ trivy sbom --artifact-type repo <repo>
 ```
 ## Where does Trivy get its data sources from?
-Data sources official doc:https://aquasecurity.github.io/trivy/v0.28.1/docs/vulnerability/detection/data-source/
+Data sources official doc: https://aquasecurity.github.io/trivy/v0.28.1/docs/vulnerability/detection/data-source/
 
 # OS
 

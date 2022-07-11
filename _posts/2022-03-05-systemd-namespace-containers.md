@@ -41,14 +41,12 @@ There are multiple ways to create a container image.
 - From a already made tar or img file such as a Ubuntu's cloudimage
 - From a docker image/container
 
-
 ## From Scratch
-Todo: creating an image from scratch
-
+Todo: creating an image using `bootstrap`
 
 ## From a ready to go image
-Todo: cloud image
-
+There are several cloud images out there here are the ones for ubuntu:
+-  https://cloud-images.ubuntu.com/kinetic/current/kinetic-server-cloudimg-arm64.tar.gz
 
 ## From a Docker container/image
 Because this is the fastest and easiest this is the one that will work the best for newbies.

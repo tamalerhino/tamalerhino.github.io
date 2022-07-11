@@ -3,11 +3,16 @@ title: Docker Desktop WSL2 Deep Dive
 date: 2021-10-01 12:00:00 -500
 categories: [Containerization]
 tags: [containerization,wsl,wsl2,docker,docker desktop,windows]
+img_path: /assets/img/posts/
+image:
+  path: pexels-pia-3046637.jpg
+  width: 1000
+  height: 800
+  alt: Dive
 ---
-
 In the last few years theres been a big push for Docker Desktop on developer workstations, many of those workstations being Mac and Windows not Linux. But since containers need a Linux kernel to run how does Docker Desktop handle this? Unfortunately the documentation out there is very light particularly using WSL2 so i have taken the time to do research and document my findings.
 
-#WSL2 Deep Dive
+# WSL2 Deep Dive
 ## Windows History
 Before we talk about WSL it's important to understand a bit about Windows, specifically Windows NT(kernel) and its subsystems. Since the beginning, Windows was designed with the ability to use several different subsystems such as POSIX, OS/2, and Win32 which is the most commonly used one today. This would give a programmatic interface to the applications without having to worry about how to implement them in the WindowsNT kernel itself.
 
@@ -18,26 +23,30 @@ Eventually, most of those initial subsystems were retired but the Windows NT ker
 ## WSL1
 WSL1 makes use of this ability by deploying a Linux Kernel Emulator Subsystem alongside the Win32 Subsystem. It is a collection of user-mode and kernel-mode components that give the ability to run native Linux ELF64 binaries to run on Windows. The main components are the LXSS Manager service which is a user-mode session manager service that handles the Linux instance life cycle. The Pico Processes that host the unmodified user mode Linux (e.g. /bin/bash). The Pico Provider Drivers (lxss.sys, lxcore.sys) emulates the Linux kernel by translating Linux system calls into WindowsNT system calls such as `fork()`. Again this was an emulated Linux kernel and not an actual Linux Kernel as shown below.
 
-WL1-Architecture.png WSL1 Architecture.png
+![wsl1-architecture1](/wsl1-architecture1.png)
+![wsl1-architecture2](/wsl1-architecture2.png)
+
 
 ### Issues with WSL1 Architecture
 Because WLS1 architecture uses an emulated Linux Kernel as a subsystem and not a real kernel. Some system calls will not translate correctly to what windows expect, for example in the image below we see how renaming a directory while having a child file open is done on the Windows side vs the Linux side.
 
 When Linux renames a directory it uses the open() syscall followed by the rename() syscall of the folder, allowing the folder to be moved underneath the file. However, the way Windows does this is by using the OpenFile() syscall followed by the MoveFile() syscall and it does not allow the underlying folder to be moved underneath. This will cause an ERROR_ACCESS_DENIED error. This is an example of many system calls that don't translate correctly and therefore will not work using WSL1.
 
-WSL1-renaming-a-folder.png
+![wsl1-renaming-folder](/wsl1-renaming-folder.png)
 
 ## WSL2
 Because of this Microsoft decided to revamp WSL and ship a real Linux Kernel, making it work side by side with the Windows NT Kernel, this is a [specially tuned kernel](https://github.com/microsoft/WSL2-Linux-Kernel) for WSL2 managed all in-house by Microsoft and updated via Windows Update. They have modified for it to boot up very quickly and removed many things that are not needed that the windows hypervisor handles. However their upstream is the same open-source kernel from [kernel.org](https://www.kernel.org/). As you see below when you enable the Virtualization Services feature on windows 10 it deploys both kernels on a thin layer on top of the Windows Hypervisor. This is a Type 1 Hypervisor and should not be confused with Hyper-V or Hyper-V Plattform which is the client that talks to the Windows Hypervisor. This way WSL2 uses Windows Hypervisor through Virtual Machine Platform to run both Windows and Linux in their own separate VM's, this design allows WSL2 to use a genuine Linux kernel in a separate virtual machine that runs in parallel to the Windows NT kernel. These are not traditional VM's however, there is no Isolation since the Linux VM and Windows VM are integrated systems.
 
-WSL2-Architecture.png WSL2-Architecture-Overview.png
-WSL2 Architectureflow.png
+![wsl2-architecture1](/wsl2-architecture1.png)
+![wsl2-architecture-overview](/wsl2-architecture-overview.png)
+![wsl2-architecture-flow](/wsl2-architecture-flow.png)
 
 WSL2 is backed by Windows Hypervisor through Virtual Machine Platform deploying a  "Lightweight Linux Utility VM" consisting of a Linux Kernel and a Linux instance allowing you to install different System Containers(not to be confused with Docker Containers or Application Containers) or distributions all isolated by Linux namespaces running on the same ext4 filesystem all within the same Lightweight Linux Utility VM.
 
-WSL2-accessing windows files
-wsl2 accessing linux files
-wsl2 multiple distros.png
+![wsl2-accessing-windows-files](/wsl2-accessing-windows-files.png)
+![wsl2-accessing-windows-files](/wsl2-accessing-linux-files.png)
+![wsl2-launching-windows-processes](/wsl2-launching-windows-processes.png)
+![wsl2-comlete-architecture-diagram](/wsl2-comlete-architecture-diagram.png)
 
 As you can see from the above image the method WSL2 mounts or makes the drives accessible is by deploying a client both on the distribution and the windows side, and also a server on the Linux distro and windows side using the 9P protocol. Almost like an NFS share. As you can see you can also start/manage windows programs using the same protocol in the case above it opens up the cmd.exe program.
 
@@ -76,7 +85,7 @@ There are two main ways to run Docker on Windows. The first method will be using
 ## Hyper-V Backend
 Docker on Desktop running on with a Hyper-V Backend is completely different than running on WSL2. The most important thing to note with this method is the Linux VM that ships with Docker for Hyper-V. This Linux VM is entirely built using [LinuxKit](https://github.com/linuxkit/linuxkit), Docker wrote a number of LinuxKit components, used both in Hyper-V and Mac VMs: services controlling the lifecycle of Docker and Kubernetes, services to collect diagnostics in case of failure, services aggregating logs, etc. Those services are packaged in an iso file in the Docker Desktop installation directory (docker-desktop.iso). On top of this base distro, at runtime, the second iso is mounted, which calls a version-pack iso. This file contains binaries and deployment/upgrade scripts specific to a version of the Docker Engine and Kubernetes. In the Enterprise edition, this second iso is part of the version packs docker publishes, while in the Community Editon, a single version pack is supported (the docker.iso file, also present in the docker desktop installation folder). Before starting the VM, a VHD is attached to store container images and configs, as well as the Kubernetes data store. To make those services accessible from the Windows side, Docker built a proxy that exposes Unix sockets as Windows [named pipes](https://docs.microsoft.com/en-us/windows/win32/ipc/named-pipes), using Hyper-V Sockets under the hood.
 
-architecture_hyper_v_backend.png
+![docker-desktop-hyperv-backend](/docker-desktop-hyperv-backend.png)
 
 # WSL2 Backend
 The WSL2 backend is very similar to the Hyper-V backend with the biggest change being that the Linuxkit Distro does not run as a VM but rather as a container itself(not a Docker/OCI container, rather containerized using namespaces). When we first install Docker Desktop with a WSL2 backend, the installation wizard will create two separate WSL Distributions. "Docker-desktop" which is referred to as the "Bootstrapping distro" essentially replacing Hyper-V and the "Docker-desktop-data"  which is referred to as the "data store distro" also replacing what we would normally think of as our VHD.
@@ -89,22 +98,20 @@ The Bootstrapping distro also manages things like mounting the Windows 9p shares
 
 Some other benefits over Hyper-V are the time difference it takes to start docker containers, and because WSL2 uses dynamic resource allocations it can access all the resources of the machines and consume as much or as little as it needs. This makes it easier to run in environments with lower memory where it was previously difficult to allocate 2GB of ram for Hyper-V upfront, this also allows for support in Windows versions where Hyper-V is not available such as Windows Home edition.
 
-dockeer architecture wls2.png
+![docker-desktop-wsl2-backend](/docker-desktop-wsl2-backend.png)
 
 NOTE: As stated above although we have the ability to create our own WSL2 Distros, Docker Desktop will not let use our own.
 
 ## VPNKIT
-VPNKIT.png
+![vpnkit](https://raw.githubusercontent.com/moby/vpnkit/master/docs/vpnkit.svg)
 
 The Docker for Windows VM is running on top of Hyper-V. vpnkit on the host uses Hyper-V sockets to connect to a process (tap-vsockd) inside the VM which accepts the connection and configures a tap device. Frames are encapsulated using the same custom protocol as on the Mac.
 
-![vpnkit2](https://camo.githubusercontent.com/e60c04f7c049981b795aa48b5393c0ff18987f63575aa8d405039dea29bfc01d/687474703a2f2f6d6f62792e6769746875622e696f2f76706e6b69742f77696e2e706e67)
+![vpnkit2](https://raw.githubusercontent.com/moby/vpnkit/master/docs/win.svg)
 
 Frames arriving from the VM are processed by a simple internal ethernet switch. The switch demultiplexes traffic onto output ports by matching on the destination IPv4 address. Frames that don't match any rule are forwarded to a default port.
 
-Frames arriving on the default port are examined and
-
-if they contain ARP requests, we send a response using a static global ARP table
+Frames arriving on the default port are examined and if they contain ARP requests, we send a response using a static global ARP table
 if they contain IPv4 datagrams then we create a fresh virtual TCP/IP endpoint using the Mirage TCP/IP stack (no kernel TCP/IP interfaces are involved), a fresh switch port on our internal switch, and connect them together so that all future IPv4 traffic to the same destination address is processed by the new endpoint.
 Each virtual TCP/IP endpoint terminates TCP and UDP flows using the Mirage TCP/IP stack. The data from the flows is proxied to and from regular BSD-style sockets on both Windows and Mac. The host kernel therefore only sees outgoing SOCK_STREAM and SOCK_DGRAM connections from the vpnkit process.
 
@@ -112,7 +119,7 @@ If the VM is communicating with 10 remote IP addresses, then there will be 10 in
 
 The following diagram shows the flow of ethernet traffic within VPNKit:
 
-vpn-kit-packet.png
+![vpnkit2](https://raw.githubusercontent.com/moby/vpnkit/master/docs/ethernet.svg)
 
 Each switch port has an associated last_active_time and if there is no traffic flow for a configured time interval, the port is deactivated and the TCP/IP endpoint is shutdown.
 
@@ -149,38 +156,44 @@ Another observation should be made that the WSL2 is set to terminate itself afte
 
 Because WSL2 is an integrated system WSL2 by default mounts the entire C drive and makes it accessible from within the Linux Distribution, because of this you are able to create, edit, and delete files from within the Linux distro. However, it does seem that even though you are root inside the distro without some sort of privilege escalation you cannot create or modify files and directories which you do not have access to on the Windows side.
 
-Here I am an admin on the windows machine creating a file from within the Distro inside WSL2.
+**Here I am an admin on the windows machine creating a file from within the Distro inside WSL2.**
 
-SHOW CREAING FILE ON LINUX AND SHOWING UP ON WINDOWS
+![docker-desktop-file-made-in-linux](/docker-desktop-file-made-in-linux.png)
 
-Here I am an admin on the windows machine creating a file from within Windows and it's accessible within WSL2.
-SHOW CREATING AFILE IN WINDOWS AND IT SHOWING UP IN LINUX
+**Here I am an admin on the windows machine creating a file from within Windows and it's accessible within WSL2.**
 
-Here I am a regular user on the windows machine but root from within the Distro inside WSL2.
-SAME BUT REGULAR USER
+![docker-desktop-file-made-in-windows](/docker-desktop-file-made-in-windows.png)
 
-Here I am a regular user on the windows machine but root from within the Distro inside WSL2.
-`cat /proc/self/mountinfo`
+**Here I am a regular user on the windows machine but root from within the Distro inside WSL2.**
+
+![docker-desktop-regular-user-files.png](/docker-desktop-regular-user-files.png)
+
+**By default, this is everything mounted on any WSL2 distro.**
+
+![docker-desktop-default-mounts](/docker-desktop-default-mounts.png)
 
 Knowing that the system is an integrated system gives us access to root level controls and directories, and the fact that most of the installation and system deployment of WSL need almost no input from the user or attacker and can be automated. Once it is installed the attacker will have full access to the subsystem without the user being alerted or notified of anything running in the background. Because the WSL2 instance is contained in the Linux System Container and runs all its calls through its own kernel none of our Windows EDR tools such as Carbon Black, will pick it up since they are only looking for specific files on the system or executables running, but the only real executable and services running are the ".exe" specific binaries and "wslhost.exe", there is also no Event tracing for Windows output as well. This will give an attacker a fully customizable foothold within our network. Since there is no way to detect or discern an attacker running a service vs a legitimate user running a service.
 
 ## Docker Specific Considerations
-`from insidie docker image whoami`
+![docker-desktop-whoami](/docker-desktop-whoami.png)
 
 Docker specific consideration from a WLS2 point of view is that the distribution of docker that comes with Docker desktop by default only has the `root` user. And even if the user itself does not have privileges on the WSL2 side, from inside the container since the WSL drive is mounted the root user in the container can create modify, and write files directly to the windows side of the filesystem.
 
-Here I am running a vulnerable container so I am taking the stance that either I have already have gotten root by privilege escalation or that only the root user exists on the container. As you can see from inside the container I am able to access the C drive that is mounted on the WSL part and even though I can't access the `range` user or admin user I can still create documents under specific folders including the docker.socket which would let me make API calls directly to the Docker daemon itself.
+Here I am running a vulnerable container so I am taking the stance that either I have already have gotten root by privilege escalation or that only the root user exists on the container. As you can see from inside the container I am able to access the C drive that is mounted on the WSL part and even though I can't access the `TamaleRhino` user or admin user I can still create documents under specific folders including the docker.socket which would let me make API calls directly to the Docker daemon itself.
 
-IMAGE
+![docker-desktop-directories](/docker-desktop-directories.png)
+![docker-desktop-dockersock](/docker-desktop-dockersock.png)
 
 ## Securing Docker Desktop
 When it comes to Docker best practices there are a few categories to look at, I will break them up as follows. The Host(this is really the WSL2 side of the host since it's integrated with windows) the Docker Daemon and the Containers themselves.
 
 ### Host:
-#### Files:
-From a DRT perspective WSL can be tricky to detect and, even if detected, the malicious association can be extremely difficult. As the installation of such a component is not in itself malicious, we are required to focus on the context of its deployment on a host as well as the distribution that is selected. Because a binary is created when a distribution is downloaded or installed we should be monitoring and blocking any of the standard WSL images such as "kali.exe", "ubuntu.exe", "centos" etc. under `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\` and only allow the Docker-based distributions. Another place would be the registry itself. Anytime there is an instance deployed on the system, the configuration information for it can be found with unique identifiers under the following registry location "Computer\HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss" 
 
-IMAGES
+#### Files:
+From a DRT perspective WSL can be tricky to detect and, even if detected, the malicious association can be extremely difficult. As the installation of such a component is not in itself malicious, we are required to focus on the context of its deployment on a host as well as the distribution that is selected. Because a binary is created when a distribution is downloaded or installed we should be monitoring and blocking any of the standard WSL images such as "kali.exe", "ubuntu.exe", "centos" etc. under `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\` and only allow the Docker-based distributions. Another place would be the registry itself. Anytime there is an instance deployed on the system, the configuration information for it can be found with unique identifiers under the following registry location `Computer\HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss`
+
+![regex-docker-data](/regex-docker-data.png)
+![regex-docker-desktop](/regex-docker-desktop.png)
 
 This provides an easy location to check for the distro installed as well as the location if an attacker wants to use a different location other than what is standard.
 
@@ -198,16 +211,17 @@ There is also an experimental `boot` label that lets us run a command, we might 
 NOTE: Again because docker desktop does not allow us to use our own distros. In order to create a `/etc/wsl.conf` file, we will have to do it after the fact, either through some sort of script that creates the file from the Windows side, or a script on the Docker side.
 
 ### Docker Daemon
+
 #### API/Syscalls:
 By default, a UNIX domain socket (or IPC socket) is created at /var/run/docker.sock, requiring either root permission or docker group membership.
 
 A [daemon.json](https://docs.docker.com/engine/reference/commandline/dockerd/#daemon-configuration-file) file must be created for us to manage the docker daemon. The JSON file can be located at `%programdata%\docker\config\daemon.json` or in the Docker Desktop GUI under Settings → Docker Engine.
 
 <details>
-  <summary>Full example of the allowed configuration options on Windows</summary>
+<summary>Full example of the allowed configuration options on Windows</summary>
 
-  ```json
-  {
+{% highlight json %}
+{
   "allow-nondistributable-artifacts": [],
   "authorization-plugins": [],
   "bridge": "",
@@ -248,13 +262,13 @@ A [daemon.json](https://docs.docker.com/engine/reference/commandline/dockerd/#da
   "tlskey": "",
   "tlsverify": true
 }
-  ```
-  
+{% endhighlight %}
+
 </details>
 
 Apparmor is not available for Docker Desktop and `seccomp-profile` is not an option on the windows daemon.json. However, when running `docker system info` it does mention it is using a [default profile](https://docs.docker.com/engine/security/seccomp/#significant-syscalls-blocked-by-the-default-profile), it seems we just can't change it.
 
-IMGAE run `docker system info`
+![docker-system-info](/docker-system-info.png)
 
 We can however use an [Authorization Plugin](https://docs.docker.com/engine/extend/plugins_authorization/). By default Docker’s out-of-the-box authorization model is all or nothing. Any user with permission to access the Docker daemon can run any Docker client command. The same is true for callers using Docker’s Engine API to contact the daemon. An authorization plugin approves or denies requests to the Docker daemon based on both the current authentication context and the command context. The authentication context contains all user details and the authentication method. The command context contains all the relevant request data. 
 
@@ -263,7 +277,7 @@ We should use an auth plugin such as [Open Policy Agent](https://www.openpolicya
 ### Logging:
 Logging for docker containers can be found under `C:\Users\<user>\AppData\Local\Docker`.
 
-IMAGE
+![docker-desktop-log-folder](/docker-desktop-log-folder.png)
 
 The Docker daemon logs two types of events:
 - Commands sent to the daemon through Docker’s Remote API
@@ -279,6 +293,7 @@ The [Remote API](https://docs.docker.com/engine/reference/api/docker_remote_api/
 - Details about the request, including the return type
 For example, listing the active containers on a Boot2Docker host generates the following log entry:
 `time="2015-11-18T11:28:50.795661833-05:00" level=info msg="GET /v1.21/containers/json"`
+
 #### Daemon Events
 Daemon events are messages regarding the state of the Docker service itself. Each event displays:
 - The current timestamp
@@ -296,7 +311,9 @@ Daemon events often provide detailed information about the state of containers. 
 `time="2015-11-18T11:28:50.754021339-05:00" level=info msg="Container b5e7de70fa9870de6c3d71bf279a4571f890e246e8903ff7d864f85c33af6c7c failed to exit within 10 seconds of SIGTERM - using the force"`
 You can retrieve a container’s ID by using the `docker inspect` command.
 Example of docker log.
-IMAGE SHOWING EXAMPLE
+
+![docker-desktop-example-log1](/docker-desktop-example-log1.png)
+![docker-desktop-example-log1](/docker-desktop-example-log2.png)
 
 ## Containers and Images
 Although we will be limiting the Docker Desktop program to use authorized docker hubs only. There is a use case where the developer can recreate a vulnerable container and be able to share it quite easily.

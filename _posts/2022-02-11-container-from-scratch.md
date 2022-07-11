@@ -3,134 +3,227 @@ title: Containers From Scratch
 date: 2022-02-11 12:00:00 -500
 categories: [Containerization]
 tags: [containerization,docker,docker desktop]
+img_path: /assets/img/posts/
+image:
+  path: pexels-pixabay-73833.jpg
+  width: 1000
+  height: 800
+  alt: Containers
 ---
 
 At the end of the day, all a container is an isolated service with its dependencies, this document will go over how to create a container from scratch, using nothing but the built-in Linux kernel modules.
 
 ## How?
-As mentioned before, a container is nothing more than an isolated service running on the linux Kernel. How it does htis is by using kernel level modules known as `namespaces`,`cgroups` and something called `capabilities`.
+As mentioned before, a container is nothing more than an isolated service running on the linux Kernel. How it does this is by using kernel level modules known as `namespaces`,`cgroups` and something called `capabilities`.
 
 For a deeper explanation of containers,namespaces,cgroups etc. click here todo-add-link
-## Prereqs
-You will need some linux folders and structures,you could create this all totally from scratch i guess but its easier this way since youre learning about isolation not linux.
 
-There are two ways to go about this one is using a Docker image, or rather exporting a Docker image, the second is just downloading a basic filesystem which is what we will be doing but just to be thorough i will document the docker way as well.
+## Prereqs
+You will need some linux folders and structures, there are two ways to go about this. 
+- Using a Docker image, or rather exporting a Docker image(we will be using this method since youre trying to learn about isolation ie: containers, not building a linux distros)
+- downloading a basic filesystem or creating it from scratch.
 
 ## Creating The Container Image
-On the machine you have docker installed run
+On the machine a you have Docker installed.
 
-```bash
-docker run -d alpine true && docker export alpine
-```
+Pull the alpine image
+`docker pull alpine`
+
+Run the container
+`docker run -d --name alpine alpine`
+
+Finally export the image to a tar file.
+`docker export --output=alpine.tar alpine`
+
 You will have tar that you can put anywhere to save for later
 
 # Creating Container
 ## With CHROOT
-All commands are for a Debian or ubuntu distro, for RedHat change it to 'yum'
-
+All commands are for a Debian or ubuntu distro, for RedHat change it to `yum`
 Get your tar image
-```bash
-wget alpine.tar.gz
-```
-Untar the image ( tar needs 'sudo' to create '/dev' files and setup file ownership) and check that the files are there including the binaries.
+`wget alpine.tar`
 
+Untar the image and take a look around, its just like any other linux distro.
+Be adviced if you mess up the commands you will need to `su` to `root` because of permissions to delete stuff.
 ```bash
-$ sudo tar -zxf alpine.tar.gz
-$ ls alpine
-$ ls -al alpine/bin/ls
+tamalerhino@localhost:~$ sudo mkdir alpine
+tamalerhino@localhost:~$ sudo tar -xf alpine.tar -C alpine
+tamalerhino@localhost:~$ ls -la alpine/
+tamalerhino@localhost:~$ ls -al alpine/etc/
 ```
-We will use `chroot` (old school!) to restrict the view of the process. This is what docker does when it does 'docker run'
+
+We will use `chroot` (old school!) to restrict the view of the process. This is what docker does when it does `docker run`
 ```bash
-$ sudo chroot alpine /bin/bash
-root@localhost:/# ls /
-root@localhost:/# which echo
-/usr/bin/echo
-root@localhost:/# /usr/bin/echo "Hello world!"'
-Hello world!
-root@localhost:/#
+tamalerhino@localhost:~$ sudo chroot alpine /bin/sh
+/ # ls
+bin    etc    lib    mnt    proc   run    srv    tmp    var
+dev    home   media  opt    root   sbin   sys    usr
+/ # echo "Meow"
+Meow
+/ #
 ```
-Note: Instead of a shell we can run one in our `chroot`. Similar to dockers `docker exec -d <container> echo "Hello World"`
+Note: Instead of a shell, we can run a command inside our `chroot`. Similar to dockers `docker exec -d <container> echo "Hello World"`
 ```bash
-$ sudo chroot alpine echo "Hello World!"
+tamalerhino@localhost:~$ sudo chroot alpine echo "meow"
+meow
+tamalerhino@localhost:~$
 ```
+
+Now of course if you try to install something uing `apk add` you will get an error since it does not have connectivity to the outside. Everything were running is from within our container.
+
+However it's not completely isolated yet!
+You can check this by running `top` from outside the chroot container then run the following commands to see that you can see the top command inside the chroot container.
+```bash
+tamalerhino@localhost:~$ top &
+[2] 1619
+tamalerhino@localhost:~$ sudo chroot alpine /bin/sh
+/ # mount -t proc proc /proc
+/ # ps aux | grep top
+ 1606 1000      0:00 top
+ 1619 1000      0:00 top
+ 1626 root      0:00 grep top
+/ #
+```
+You should not be able to see that root process inside the container.
+Whats worse is you can actually kill that service from inside the container by running
+```bash
+/ # pkill top
+```
+That defeats the purpouse of containes right?!
+
 ## Isolation (namespaces)
 ok now to isolate the whole thing using a syscall called [unshare](https://linux.die.net/man/2/unshare) by using the CLI tool by the same name. This will create a namespace for our container to run in. This is similar to dockers `docker run ` command.
-```bash
-$ sudo unshare -p -f --mount-proc=$PWD/alpine/proc \
-    chroot alpine /bin/bash
- ```
- Check to make sure its PID is 1 
-```bash
-root@localhost:/# ps aux
-```
-## Using nsenter
-Alternatively you can use a different utility to login to the running container, similar to what `docker exec -it`will do when you run it. 
-From an alternative terminal let’s find the shell running in a chroot from our last example.
-```bash
-$ ps aux | grep /bin/bash | grep root
-```
-The kernel exposes namespaces under `/proc/(PID)/ns` as files which is the process namespace we’re hoping to join.
-```bash
-$ sudo ls -l /proc/29840/ns
-```
-The `nsenter` command provides a wrapper around `setns` to enter a namespace. We’ll provide the `namespace file`, then run the `unshare` to remount `/proc` and `chroot` to setup a `chroot`. This time, instead of creating a new namespace, our shell will join the existing one.
-```bash
-$ sudo nsenter --pid=/proc/<PID>/ns/pid \
-    unshare -f --mount-proc=$PWD/rootfs/proc \
-    chroot rootfs /bin/bash
-```
-## Volumes?
-When deploying an “immutable” container it often becomes important to inject files or directories into the chroot, either for storage or configuration. For this example, we’ll create some files on the host, then expose them read-only to the chrooted shell using mount.
 
-First, let’s make a new directory to mount into the chroot and create a file there.
 ```bash
-$ sudo mkdir readonlyfiles
-$ echo "hello" > readonlyfiles/hi.txt
+tamalerhino@localhost:~$ cd alpine
+tamalerhino@localhost:~/alpine$ sudo unshare --mount --uts --ipc --net --pid --fork bash
+root@localhost:/home/tamalerhino/alpine#
 ```
-Next, we’ll create a target directory in our container and bind mount the directory providing the -o ro argument to make it read-only. If you’ve never seen a bind mount before, think of this like a symlink on steroids. similar to dockers `docker -v /<host directory>:/<container directory>`command
+
+Just to test that youre in a container lets try changing the hostname
 ```bash
-  $ sudo mkdir -p rootfs/var/readonlyfiles
-$ sudo mount --bind -o ro $PWD/readonlyfiles $PWD/rootfs/var/readonlyfiles
+root@localhost:/home/tamalerhino/alpine# hostname container
+root@localhost:/home/tamalerhino/alpine# exec bash
+root@container:/home/tamalerhino/alpine#
 ```
+Open up a second terminal so you can check to see that your host system hostname has not changed!
+
+
+Now to fix the issue with the fact that we can kill processes, if you were to run `ps` from inside the container right now this is what you would see:
+```bash
+root@container:/home/tamalerhino/alpine# ps
+    PID TTY          TIME CMD
+   2065 pts/1    00:00:00 sudo
+   2066 pts/1    00:00:00 unshare
+   2067 pts/1    00:00:00 bash
+   2109 pts/1    00:00:00 ps
+root@container:/home/tamalerhino/alpine#
+```
+We dont want that! The reason we are seeing that is because when we mounted everything we also added the global /proc directory to the container. Lets only add our alpine /proc directory to our namespace
+```bash
+root@container:/home/tamalerhino/alpine# mount -t proc proc /proc
+root@container:/home/tamalerhino/alpine# ps
+    PID TTY          TIME CMD
+      1 pts/1    00:00:00 bash
+     16 pts/1    00:00:00 ps
+root@container:/home/tamalerhino/alpine#
+```
+Now we can only see our processes.
+
+Lets go ahead and take it one step further by telling the system that our root `/` directory is at the alpine directory, we can do this by using `pivot_root`. 
+From the man page: "pivot_root() changes the root mount in the mount namespace of the calling process. More precisely, it moves the root mount to the directory put_old and makes new_root the new root mount."
+
+
+
+## Volumes?
+For any good use case directories or volumes are needed, thats how you can run immutable containers with your own files. Lets create a few files and show you how to mount them.
+
+First, let’s make a new directory and `touch` a new file inside.
+
+```bash
+tamalerhino@localhost:~$ mkdir mahfiles
+tamalerhino@localhost:~$ echo "meow" > mahfiles/meow.txt
+```
+
+Next, we’ll create a  directory in our container and bind mount the directory providing the -o ro argument to make it read-only. Similar to dockers `docker -v /<host directory>:/<container directory>`command.
+
+```bash
+tamalerhino@localhost:~$ sudo mkdir -p alpine/tmp/mahfiles
+tamalerhino@localhost:~$ sudo mount --bind -o ro $PWD/mahfiles $PWD/alpine/tmp/mahfiles
+```
+
 The chrooted process can now see the mounted files.
+
  ```bash
-$ sudo chroot rootfs /bin/bash
-root@localhost:/# cat /var/readonlyfiles/hi.txt
+tamalerhino@localhost:~$ sudo chroot alpine /bin/sh
+/# cat /tmp/mahfiles/hi.txt
 hello
 ```
+
 Because it's read-only it cannot write things back from the container back to the host. But again you wouldn't want it to since its supposed to be immutable.
+
 ```bash
-root@localhost:/# echo "bye" > /var/readonlyfiles/hi.txt
-bash: /var/readonlyfiles/hi.txt: Read-only file system
+tamalerhino@localhost:~$ sudo chroot alpine /bin/sh
+/ # echo "woof" > /tmp/mahfiles/woof.txt
+/bin/sh: can't create /tmp/mahfiles/woof.txt: Read-only file system
+/ #
 ```
 
 Use umount to remove the bind mount (rm won’t work).
 ```bash
-$ sudo umount $PWD/rootfs/var/readonlyfiles
+tamalerhino@localhost:~$ sudo umount $PWD/alpine/tmp/mahfiles/
 ```
+
 ## Further Isolation or limits (Cgroups)
 cgroups, short for control groups, allow kernel-imposed isolation on resources like memory and CPU. This is so one container cant kill things in other containers by using up all the ram etc.
 
 The kernel exposes cgroups through the `/sys/fs/cgroup` directory. If your machine doesn’t have one you may have to [mount the memory cgroup](https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Resource_Management_Guide/sec-memory.html#memory_example-usage) to follow along.
+
 ```bash
-$ ls /sys/fs/cgroup/
+tamalerhino@localhost:~$ ls /sys/fs/cgroup/
+cgroup.controllers      cpu.stat               io.pressure                    sys-kernel-config.mount
+cgroup.max.depth        cpuset.cpus.effective  io.prio.class                  sys-kernel-debug.mount
+cgroup.max.descendants  cpuset.mems.effective  io.stat                        sys-kernel-tracing.mount
+cgroup.procs            dev-hugepages.mount    memory.numa_stat               system.slice
+cgroup.stat             dev-mqueue.mount       memory.pressure                user.slice
+cgroup.subtree_control  init.scope             memory.stat
+cgroup.threads          io.cost.model          misc.capacity
+cpu.pressure            io.cost.qos            sys-fs-fuse-connections.mount
 ```
-For this example, we’ll create a cgroup to restrict the memory of a process. Creating a cgroup is easy, just create a directory. In this case, we’ll create a memory group called “demo”. Once created, the kernel fills the directory with files that can be used to configure the cgroup.
 
-$ sudo su
-# mkdir /sys/fs/cgroup/memory/demo
-# ls /sys/fs/cgroup/memory/demo/
-To adjust a value we just have to write to the corresponding file. Let’s limit the cgroup to 100MB of memory and turn off swap.
+For this example, we’ll create a cgroup to restrict the memory of a process. 
 
-# echo "100000000" > /sys/fs/cgroup/memory/demo/memory.limit_in_bytes
-# echo "0" > /sys/fs/cgroup/memory/demo/memory.swappiness
-The tasks file is special, it contains the list of processes that are assigned to the cgroup. To join the cgroup we can write our own PID.
+In oder to creat a cgroup all youy need to do is create a directory. we will create one to limit the memory and we will call the folder "meow. Once the directory has been created, the kernel automatically creates the nesseasary files to configure the cgroup itself.
 
-# echo $$ > /sys/fs/cgroup/memory/demo/tasks
-Time to test:
+```bash
+tamalerhino@localhost:~$ sudo su
+root@localhost:/home/tamalerhino# mkdir /sys/fs/cgroup/meow
+root@localhost:/home/tamalerhino# ls /sys/fs/cgroup/meow
+cgroup.controllers      cpu.max                cpuset.mems.effective  memory.min
+cgroup.events           cpu.max.burst          io.max                 memory.numa_stat
+cgroup.freeze           cpu.pressure           io.pressure            memory.oom.group
+cgroup.kill             cpu.stat               io.prio.class          memory.pressure
+cgroup.max.depth        cpu.uclamp.max         io.stat                memory.stat
+cgroup.max.descendants  cpu.uclamp.min         io.weight              memory.swap.current
+cgroup.procs            cpu.weight             memory.current         memory.swap.events
+cgroup.stat             cpu.weight.nice        memory.events          memory.swap.high
+cgroup.subtree_control  cpuset.cpus            memory.events.local    memory.swap.max
+cgroup.threads          cpuset.cpus.effective  memory.high            pids.current
+cgroup.type             cpuset.cpus.partition  memory.low             pids.events
+cpu.idle                cpuset.mems            memory.max             pids.max
+root@localhost:/home/tamalerhino#
+```
+To configure the memory value we just need to write to the correspoding file. We will limit it to 100MB of memory.
+```bash
+root@localhost:/home/tamalerhino# echo "100000000" > /sys/fs/cgroup/meow/memory.max
+```
+In order to assign our process to that cgroup we will need to edit the `cgroup.procs` file. By adding our PID into this file.
 
-Create a python script with this inside and run it.
-
+```bash
+root@localhost:/home/tamalerhino# echo $$ > /sys/fs/cgroup/meow/cgroup.procs
+```
+Lets test cgroup by running a quick python script.
+```python
 f = open("/dev/urandom", "r")
 data = ""
  
@@ -139,9 +232,12 @@ while True:
     data += f.read(10000000) # 10mb
     i += 1
     print "%dmb" % (i*10,)
+```
+
 If you’ve set up the cgroup correctly, this program won’t crash your computer.
 
-# python script.py
+```bash
+root@localhost:/home/tamalerhino# python2.7 testing.py
 10mb
 20mb
 30mb
@@ -151,13 +247,18 @@ If you’ve set up the cgroup correctly, this program won’t crash your compute
 70mb
 80mb
 Killed
-cgroups can’t be removed until every process in the tasks file has exited or been reassigned to another group. Exit the shell and remove the directory with rmdir (don’t use rm -r).
+```
+
+cgroups can’t be removed until every process in the procs has exited or been reassigned to another group. 
+
+Exit out of the current shell and remove the directory with rmdir (don’t use rm - or youull get the `operation not permited` errors).
 
 DO NOT DO THIS UNLESS YOU'RE DONE WITH YOUR CONTAINER
 
-# exit
-exit
-$ sudo rmdir /sys/fs/cgroup/memory/demo
+```bash
+root@localhost:/home/tamalerhino# exit
+tamalerhino@localhost:~$ sudo rmdir /sys/fs/cgroup/meow
+```
 
 
 ## Networking
