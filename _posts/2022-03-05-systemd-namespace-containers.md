@@ -49,26 +49,33 @@ There are several cloud images out there here are the ones for ubuntu:
 -  https://cloud-images.ubuntu.com/kinetic/current/kinetic-server-cloudimg-arm64.tar.gz
 
 ## From a Docker container/image
-Because this is the fastest and easiest this is the one that will work the best for newbies.
+This is the fastest and easiest but will not work in most cases since you will need to create an init script on the container to start your services. But it is a container it just wont run anything automatically until you login to the container and run it manually.
 
-First find the docker image you want from docker hub - in my example i have chosen xwiki.
+First find the docker image you want from docker hub - in my example i have chosen dokuwiki.
 Second pull the image down.
 ```bash
-docker pull xwiki
+docker pull dokuwiki
 ```
 Third run the container how you would like it to run.
 ```bash
-docker run --name xwiki -p 8080:80 -d xwiki
+docker run -d \
+  --name=dokuwiki \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=America/Chicago \
+  -p 80:80 \
+  --restart unless-stopped \
+  lscr.io/linuxserver/dokuwiki:latest
 ```
 Finally export the image to a tar file that can be used with systemd-namespace containers.
 ```bash
-docker export --output=xwiki.tar xwiki
+docker export --output=dokuwiki.tar dokuwiki
 ```
 ![exporting a docker image](exporting-docker-image.png)
 # Downloading or Pulling the Image
 
 ## wget/curl
-If you got your image hosted somewhere on the internet just use wget or curl to download it.
+If you got your image hosted somewhere on the internet just use `wget` or `curl` to download it.
 
 ## Pulling an "image" using machinectl
 
@@ -92,13 +99,13 @@ You might run into an issue where it wants to be verified, in that case run:
 
 ### tarball image
 ```bash
-machinectl import-tar xwiki.tar
+machinectl import-tar dokuwiki.tar
 ```
 ![importing an image](importing-image.png)
 
 ### img/raw image
 ```bash
-machinectl import-raw xwiki.img
+machinectl import-raw dokuwiki.img
 ```
 
 ## View the installed images.
@@ -116,20 +123,19 @@ Technically you can use `machinectl` to start the container but every now and th
 Depending if you want a shell or not it might be best to untar it and run it with the `--boot` `-b` flag to let systemd run systemd inside of the container.
 
 ```bash
-systemd-nspawn -bD xwiki/
+systemd-nspawn -bD dokuwiki/
 ```
 ## In a Shell
 ```bash
-sytemd-nspawn -M xwiki
+sytemd-nspawn -M dokuwiki
 ```
 
 ![run the container](run-container.png)
 
 
-# Taking it an extra step of container orchestration
-I know.. I know.. I wanted to do it all with nothing but my Linux laptop but! There's a reason Kubernetes exists, and you want to know how to orchestrate multiple containers with systemd. So use [Nomad](https://www.nomadproject.io/)! If you have never heard of Nomad watch my [talk](https://www.youtube.com/watch?v=e-kMPdlYrhw). TLDR: Nomad is a scheduler/orchestrator with different drivers that will let you deploy containers,packages,virtual machines etc. And its all done with nothing but one binary and a HCL fie.
-
-This blog post is long enough so ill make another one specifically for this but i wanted to metnion it, please refer to the References section for a link to the driver.
+# Other
+Just as an FYI the default directory where all of this gets downloaded to is `/var/lib/machines`
+To clean most of this up you can run `machinectl clean --all`
 
 
 # References
@@ -139,3 +145,5 @@ This blog post is long enough so ill make another one specifically for this but 
 - https://docs.docker.com/engine/reference/commandline/export/
 - https://cloud-images.ubuntu.com/
 - https://www.nomadproject.io/plugins/drivers/community/nspawn
+- https://wiki.debian.org/Debootstrap
+- https://wiki.polaire.nl/doku.php?id=airspy_in_nspawn_chroot
