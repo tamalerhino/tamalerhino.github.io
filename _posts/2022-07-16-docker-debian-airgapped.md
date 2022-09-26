@@ -74,7 +74,8 @@ Example:
 ```bash
 docker save -o dokuwiki.docker lscr.io/linuxserver/dokuwiki
 ```
-Note: if you dont know the name of the your image just run `docker images` and it will be the full name under `REPOSITORY`
+>If you dont know the name of the your image just run `docker images` ,it will be the "full name" under `REPOSITORY`
+{: .prompt-tip }
 
 Save this image in your usb drive or use SCP or  like with your other files wherever you can get to them later.
 # Run the docker image on an airgapped sytem.
